@@ -137,6 +137,45 @@ app.delete("/db-files/:tableName", async (req, res) => {
   }
 });
 
+app.put("/data/:tableName/:recordId", async (req, res) => {
+  const { tableName, recordId } = req.params;
+  const updatedData = req.body;
+
+  try {
+    if (!tableName || !recordId) {
+      return res.status(400).json({ error: "Table name or record ID missing" });
+    }
+
+    const columns = Object.keys(updatedData);
+    const values = Object.values(updatedData);
+
+    if (!columns.length) {
+      return res.status(400).json({ error: "No data provided to update" });
+    }
+
+    // console.log("Update result:", columns[0]);
+
+    const idColumn = columns[0];
+    
+
+    const setClause = columns.map((col, idx) => `"${col}"=$${idx + 1}`).join(", ");
+    const query = `UPDATE "${tableName}" SET ${setClause} WHERE "${idColumn}"=$${columns.length + 1} RETURNING *;`;
+
+    const result = await sql.query(query, [...values, recordId]);
+    console.log("Update result:", result);
+
+    if (!result || !result.length) {
+      return res.status(404).json({ error: "Record not found" });
+    }
+
+    res.json({ message: "Record updated successfully", data: result[0] });
+  } catch (err) {
+    console.error("Update error:", err);
+    res.status(500).json({ error: "Failed to update table row" });
+  }
+});
+
+
 
 app.listen(2000, () => {
   console.log("🚀 Server running on port 2000");
