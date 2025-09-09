@@ -28,46 +28,35 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     const filePath = req.file.path;
-    const tableName = path
-      .basename(req.file.originalname, path.extname(req.file.originalname))
-      .toLowerCase();
+    const tableName = path.parse(req.file.originalname).name.toLowerCase();
+    console.log("tableName.....", tableName)
 
     const rows = await readXlsxFile(filePath);
-    const headers = rows[0].map((h) => h.toLowerCase().replace(/\s+/g, "_"));
+    const headers = rows[0].map(h => h.toLowerCase().replaceAll(" ", "_"));
     const dataRows = rows.slice(1);
-
 
     const columnsSQL = headers.map((h) => `"${h}" TEXT`).join(", ");
     await sql.query(`CREATE TABLE IF NOT EXISTS "${tableName}" (${columnsSQL})`);
+    await sql.query(`TRUNCATE TABLE "${tableName}" RESTART IDENTITY`);
 
-
+    const cols = headers.map((h) => `"${h}"`).join(", ");
+    const placeholders = headers.map((_, i) => `$${i + 1}`).join(", ");
     for (let row of dataRows) {
-      const values = row.map((v) =>
-        v instanceof Date ? v.toISOString().split("T")[0] : v
-      );
-      const cols = headers.map((h) => `"${h}"`).join(", ");
-      const placeholders = headers.map((_, i) => `$${i + 1}`).join(", ");
-      await sql.query(
-        `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders})`,
-        values
-      );
+      const values = row.map((v) => v instanceof Date ? v.toISOString().split("T")[0] : v);
+      await sql.query(`INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders})`, values);
     }
-
-    res.json({
-      message: "File uploaded & data inserted",
-      table: tableName,
-      file: req.file.filename,
-    });
+    
+    res.json({message: "File uploaded & data overwritten successfully", table: tableName, file: req.file.filename,});
   } 
   catch (err) {
     console.error("Upload error:", err);
     res.status(500).json({ error: "Upload failed" });
   }
 });
+
 
 
 app.get("/db-files", async (req, res) => {
@@ -153,16 +142,12 @@ app.put("/data/:tableName/:recordId", async (req, res) => {
       return res.status(400).json({ error: "No data provided to update" });
     }
 
-    // console.log("Update result:", columns[0]);
-
     const idColumn = columns[0];
-    
-
     const setClause = columns.map((col, idx) => `"${col}"=$${idx + 1}`).join(", ");
     const query = `UPDATE "${tableName}" SET ${setClause} WHERE "${idColumn}"=$${columns.length + 1} RETURNING *;`;
 
     const result = await sql.query(query, [...values, recordId]);
-    console.log("Update result:", result);
+    // console.log("Update result:", result);
 
     if (!result || !result.length) {
       return res.status(404).json({ error: "Record not found" });
